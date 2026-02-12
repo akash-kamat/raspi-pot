@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# SvelteKit/Vite
+client/.svelte-kit/
+client/build/
+.vercel/
+.netlify/
+.svelte-kit/
+build/
+
+# Production
+dist/
+
+# Env & Secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS Files
+.DS_Store
+Thumbs.db
