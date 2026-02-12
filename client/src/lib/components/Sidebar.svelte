@@ -3,6 +3,7 @@
   import { logout, auth } from '$lib/stores/auth';
   import { goto } from '$app/navigation';
   import { socket } from '$lib/stores/socket';
+  import TaskStatus from './TaskStatus.svelte';
 
   function handleLogout() {
       logout();
@@ -64,12 +65,22 @@
             <span class="material-icons">terminal</span>
             Terminal
         </a>
+        <a href="/files" class:active={$page.url.pathname === '/files'}>
+            <span class="material-icons">folder</span>
+            Explorer
+        </a>
+        <a href="/scripts" class:active={$page.url.pathname === '/scripts'}>
+            <span class="material-icons">play_circle</span>
+            Scripts
+        </a>
         <a href="/settings" class:active={$page.url.pathname === '/settings'}>
             <span class="material-icons">settings</span>
             Settings
         </a>
     </div>
   </nav>
+
+  <TaskStatus />
   
   <div class="user-info">
       <div class="user-avatar">

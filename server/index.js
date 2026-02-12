@@ -9,10 +9,23 @@ const path = require('path');
 const jwt = require('jsonwebtoken');
 const si = require('systeminformation');
 const fs_extra = require('fs-extra');
+const multer = require('multer');
 require('dotenv').config();
 
 const app = express();
 const server = http.createServer(app);
+
+// Configure Multer for uploads
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        const targetPath = req.query.path || os.homedir();
+        cb(null, targetPath);
+    },
+    filename: (req, file, cb) => {
+        cb(null, file.originalname);
+    }
+});
+const upload = multer({ storage });
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'raspberry';
@@ -36,10 +49,12 @@ app.post('/api/login', (req, res) => {
   return res.status(401).json({ success: false, message: 'Invalid password' });
 });
 
-// Middleware to verify JWT for API routes (optional, if we add more APIs)
+// Middleware to verify JWT for API routes
 const authenticateToken = (req, res, next) => {
     const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
+    // Support both Bearer header and query param (needed for direct browser downloads)
+    const token = (authHeader && authHeader.split(' ')[1]) || req.query.token;
+    
     if (!token) return res.sendStatus(401);
 
     jwt.verify(token, JWT_SECRET, (err, user) => {
@@ -52,6 +67,30 @@ const authenticateToken = (req, res, next) => {
 // API Placeholder (Protected)
 app.get('/api/health', authenticateToken, (req, res) => {
   res.json({ status: 'ok', time: new Date() });
+});
+
+// File Download
+app.get('/api/files/download', authenticateToken, (req, res) => {
+    const filePath = req.query.path;
+    if (!filePath) return res.status(400).send('Path required');
+    
+    const absolutePath = path.resolve(filePath);
+    console.log('Downloading file:', absolutePath);
+    
+    // Explicitly allow dotfiles (hidden files)
+    res.download(absolutePath, path.basename(absolutePath), { dotfiles: 'allow' }, (err) => {
+        if (err) {
+            console.error('Download error:', err);
+            if (!res.headersSent) {
+                res.status(404).send('File not found');
+            }
+        }
+    });
+});
+
+// File Upload
+app.post('/api/files/upload', authenticateToken, upload.single('file'), (req, res) => {
+    res.json({ success: true, message: 'File uploaded' });
 });
 
 // Serve static files from the SvelteKit build (production)
@@ -311,6 +350,72 @@ io.on('connection', (socket) => {
         console.error('Failed to update .env:', e);
         socket.emit('notification', { type: 'error', message: 'Failed to save new password' });
     }
+  });
+
+  // --- File Manager ---
+  socket.on('files:list', async (dirPath) => {
+    try {
+        const target = dirPath || os.homedir();
+        const items = await fs_extra.readdir(target, { withFileTypes: true });
+        const list = items.map(item => ({
+            name: item.name,
+            isDirectory: item.isDirectory(),
+            path: path.join(target, item.name),
+            size: item.isDirectory() ? 0 : fs_extra.statSync(path.join(target, item.name)).size
+        })).sort((a, b) => b.isDirectory - a.isDirectory || a.name.localeCompare(b.name));
+        
+        socket.emit('files:data', { path: target, items: list });
+    } catch (e) {
+        socket.emit('notification', { type: 'error', message: `Failed to list directory: ${e.message}` });
+    }
+  });
+
+  socket.on('files:read', async (filePath) => {
+    try {
+        const content = await fs_extra.readFile(filePath, 'utf8');
+        socket.emit('files:content', { path: filePath, content });
+    } catch (e) {
+        socket.emit('notification', { type: 'error', message: `Failed to read file: ${e.message}` });
+    }
+  });
+
+  socket.on('files:write', async ({ path, content }) => {
+    try {
+        await fs_extra.writeFile(path, content, 'utf8');
+        socket.emit('notification', { type: 'success', message: 'File saved successfully' });
+    } catch (e) {
+        socket.emit('notification', { type: 'error', message: `Failed to save file: ${e.message}` });
+    }
+  });
+
+  socket.on('files:delete', async (filePath) => {
+    try {
+        await fs_extra.remove(filePath);
+        socket.emit('notification', { type: 'success', message: 'Item deleted' });
+        socket.emit('files:refresh');
+    } catch (e) {
+        socket.emit('notification', { type: 'error', message: `Delete failed: ${e.message}` });
+    }
+  });
+
+  // --- Script Runner ---
+  socket.on('scripts:run', (scriptPath) => {
+    const child = exec(scriptPath);
+    
+    socket.emit('scripts:output', `\n> Running: ${scriptPath}\n`);
+    
+    child.stdout.on('data', (data) => {
+        socket.emit('scripts:output', data);
+    });
+    
+    child.stderr.on('data', (data) => {
+        socket.emit('scripts:output', `[ERROR] ${data}`);
+    });
+    
+    child.on('close', (code) => {
+        socket.emit('scripts:output', `\n> Process finished with code ${code}\n`);
+        socket.emit('scripts:finished');
+    });
   });
 
   socket.on('disconnect', () => {
