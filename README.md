@@ -87,12 +87,6 @@ Now access the dashboard at `http://your-pi-ip:3000`.
 
 ---
 
-## 📸 Screenshots
-
-*(Add your screenshots here to make the project even more attractive!)*
-
----
-
 ## 🛡 Security
 
 - JWT-based authentication for both API and Socket connections.
